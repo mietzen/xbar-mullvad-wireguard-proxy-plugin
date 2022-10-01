@@ -52,7 +52,8 @@ class MullvadSocksProxyMenu:
             try:
                 self._relays = json.loads((requests.get(
                     'https://api.mullvad.net/www/relays/all/', timeout=10).text))
-                self._relays = [x for x in self._relays if x['active'] and not x['status_messages'] and x['type'] == 'wireguard']
+                self._relays = [x for x in self._relays if x['active']
+                                and not x['status_messages'] and x['type'] == 'wireguard']
                 self._mullvad_api_reachable = True
             except (requests.ConnectionError, requests.Timeout, AttributeError, json.JSONDecodeError):
                 self._mullvad_api_reachable = False
@@ -72,7 +73,8 @@ class MullvadSocksProxyMenu:
                     # Ping wireguard default dns to check if we might be connected to mullvad via wireguard
                     if subprocess.call(['ping', '-c', '1', '10.64.0.1']) == 0:
                         self._status['mullvad_exit_ip'] = True
-                        self._relays = [x for x in self._relays if x['type'] == 'wireguard']
+                        self._relays = [
+                            x for x in self._relays if x['type'] == 'wireguard']
                     else:
                         # We're probably not connected via mullvad
                         self._status['mullvad_exit_ip'] = False
@@ -125,7 +127,7 @@ class MullvadSocksProxyMenu:
             if self._status['mullvad_server_type'].lower() == 'wireguard':
                 if self._am_i_mullvad_reachable and self._status.get('mullvad_exit_ip') and self._get_proxy_status() != 'Off':
                     proxies = {'https': 'socks5://' +
-                            self._get_proxy_status() + ':1080'}
+                               self._get_proxy_status() + ':1080'}
                     self._status = json.loads(
                         (requests.get('https://am.i.mullvad.net/json', proxies=proxies, timeout=10).text))
                 fid.write('---' + '\n')
@@ -133,7 +135,7 @@ class MullvadSocksProxyMenu:
                 if self._am_i_mullvad_reachable:
                     if self._status.get('mullvad_exit_ip'):
                         fid.write('Country: 		' +
-                                self._status.get('country') + '\n')
+                                  self._status.get('country') + '\n')
                     if self._status.get('city'):
                         fid.write('City: 		' + self._status.get('city') + '\n')
                     if self._status.get('mullvad_exit_ip'):
@@ -142,7 +144,7 @@ class MullvadSocksProxyMenu:
                         fid.write(
                             'Type: 		' + self._status.get('mullvad_server_type') + '\n')
                         fid.write('Organization:	' +
-                                self._status.get('organization') + '\n')
+                                  self._status.get('organization') + '\n')
                 else:
                     fid.write('Connected via mullvad!' + '\n')
                     fid.write('Details are not available:' + '\n')
@@ -150,17 +152,17 @@ class MullvadSocksProxyMenu:
                 fid.write('---' + '\n')
                 fid.write('Proxy:		' + self._get_proxy_status() + '\n')
                 fid.write('Off | terminal=false | refresh=true | ' +
-                        self._deactivate_proxy() + '\n')
+                          self._deactivate_proxy() + '\n')
                 if self._status.get('mullvad_exit_ip'):
                     fid.write('Mullvad default | terminal=false | refresh=true | ' +
-                            self._activate_proxy() + ' | ' + self._set_proxy('10.64.0.1') + '\n')
+                              self._activate_proxy() + ' | ' + self._set_proxy('10.64.0.1') + '\n')
                     fid.write('Countries:' + '\n')
                     for country in self._get_countries():
-                        # Positive lookhead, do we have proxies in this country?
+                        # Positive lookahead, do we have proxies in this country?
                         if [x for x in self._get_cities(country) if self._get_hostnames(x)]:
                             fid.write('--' + country + '\n')
                             for city in self._get_cities(country):
-                                # Positive lookhead, do we have proxies in this city?
+                                # Positive lookahead, do we have proxies in this city?
                                 if self._get_hostnames(city):
                                     fid.write('----' + city + '\n')
                                     for server in self._get_hostnames(city):
@@ -171,12 +173,13 @@ class MullvadSocksProxyMenu:
                     'Open Mullvad VPN | terminal=false | refresh=true | shell=open param1=-a param2="Mullvad VPN"' + '\n')
             else:
                 fid.write('---' + '\n')
-                fid.write('SOCKS Proxy not available!\nYour connected via OpenVPN!' + '\n')
+                fid.write(
+                    'SOCKS Proxy not available!\nYour connected via OpenVPN!' + '\n')
                 fid.write('---')
                 if self._default_device_name:
                     fid.write('Proxy:		' + self._get_proxy_status() + '\n')
                     fid.write('Off | terminal=false | refresh=true | ' +
-                            self._deactivate_proxy() + '\n')
+                              self._deactivate_proxy() + '\n')
                     fid.write('---' + '\n')
                     fid.write(
                         'Open Mullvad VPN | terminal=false | refresh=true | shell=open param1=-a param2="Mullvad VPN"' + '\n')
@@ -206,13 +209,14 @@ class MullvadSocksProxyMenu:
         fid.write('Refresh now | refresh=true')
         print(fid.getvalue())
 
+
 if platform.system() == 'Darwin':
     try:
         mullvad_socks_proxy_menu = MullvadSocksProxyMenu()
         mullvad_socks_proxy_menu.print_menu()
     except Exception as exception:
         print('' + " | font='FontAwesome5Free-Solid' | size=16 | trim=false | templateImage=" +
-            MullvadSocksProxyMenu.mullvad_icon)
+              MullvadSocksProxyMenu.mullvad_icon)
         print('---')
         print('Error')
         print('---')
@@ -221,10 +225,10 @@ if platform.system() == 'Darwin':
         print('Refresh now | refresh=true')
 else:
     print('' + " | font='FontAwesome5Free-Solid' | size=16 | trim=false | templateImage=" +
-        MullvadSocksProxyMenu.mullvad_icon)
+          MullvadSocksProxyMenu.mullvad_icon)
     print('---')
     print('Error')
     print('---')
     print('Sorry atm macOS only')
     print('---')
-    print('Refresh now | refresh=true')    
+    print('Refresh now | refresh=true')
