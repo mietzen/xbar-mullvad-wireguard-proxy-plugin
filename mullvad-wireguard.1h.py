@@ -34,20 +34,25 @@ class MullvadSocksProxyMenu:
         self._am_i_mullvad_reachable = None
 
         self._status = None
-        self._locations = None
         self._relays = None
         self._default_device_name = subprocess.check_output(
             "networksetup -listnetworkserviceorder | grep $(netstat -rn | grep default | awk '{ print $4 }' | head -n1 | xargs) | cut -d ':' -f 2 | cut -d ',' -f 1 | tr -d '[:space:]'", shell=True, text=True)
         self._check_if_online()
         self._load_mullvad_data()
 
+    def _check_if_online(self):
+        try:
+            _ = requests.head(url='https://www.google.com/', timeout=10)
+            self._online = True
+        except requests.ConnectionError:
+            self._online = False
+
     def _load_mullvad_data(self):
         if self._online:
             try:
-                relay_info = json.loads((requests.get(
-                    'https://api.mullvad.net/public/relays/wireguard/v2/', timeout=10).text))
-                self._locations = relay_info.get('locations')
-                self._relays = relay_info.get('wireguard').get('relays')
+                self._relays = json.loads((requests.get(
+                    'https://api.mullvad.net/www/relays/all/', timeout=10).text))
+                self._relays = [x for x in self._relays if x['active'] and not x['status_messages'] and x['type'] == 'wireguard']
                 self._mullvad_api_reachable = True
             except (requests.ConnectionError, requests.Timeout, AttributeError, json.JSONDecodeError):
                 self._mullvad_api_reachable = False
@@ -57,37 +62,32 @@ class MullvadSocksProxyMenu:
                     self._status = json.loads(
                         (requests.get('https://am.i.mullvad.net/json', timeout=10).text))
                     self._am_i_mullvad_reachable = True
+                    self._status['mullvad_server_type'].lower()
                 except (requests.ConnectionError, requests.Timeout, AttributeError, json.JSONDecodeError):
-                    self.m_i_mullvad_reachable = False
+                    # am.i.mullvad.net is sometimes unreachable, so we try to get gather some info
+                    self._am_i_mullvad_reachable = False
                     external_ip = subprocess.check_output(
                         "dig +short myip.opendns.com @resolver1.opendns.com | tr -d '[:space:]'", shell=True, text=True)
                     self._status = {'ip': external_ip}
+                    # Ping wireguard default dns to check if we might be connected to mullvad via wireguard
                     if subprocess.call(['ping', '-c', '1', '10.64.0.1']) == 0:
                         self._status['mullvad_exit_ip'] = True
+                        self._relays = [x for x in self._relays if x['type'] == 'wireguard']
                     else:
+                        # We're probably not connected via mullvad
                         self._status['mullvad_exit_ip'] = False
 
-    def _check_if_online(self):
-        try:
-            _ = requests.head(url='https://www.google.com/', timeout=10)
-            self._online = True
-        except requests.ConnectionError:
-            self._online = False
-
     def _get_countries(self) -> list:
-        return sorted(list(set([i.get('country') for i in self._locations.values()])))
+        return sorted(set([x['country_name'] for x in self._relays]))
 
     def _get_cities(self, country: str) -> list:
-        return sorted([i.get('city') for i in self._locations.values() if i.get('country') == country])
+        return sorted(set([x['city_name'] for x in self._relays if x['country_name'] == country]))
 
-    def _get_city_code(self, city: str) -> str:
-        return [i for i, j in self._locations.items() if j.get('city') == city][0]
-
-    def _get_hostnames(self, city_code: str) -> list:
-        return sorted([i.get('hostname') for i in self._relays if i.get('location') == city_code])
+    def _get_hostnames(self, city: str) -> list:
+        return sorted(set([x['hostname'] for x in self._relays if x['city_name'] == city]))
 
     def _get_ip_v4_address(self, hostname: str) -> str:
-        return [i.get('ipv4_addr_in') for i in self._relays if i.get('hostname') == hostname][0]
+        return sorted(set([x['ipv4_addr_in'] for x in self._relays if x['hostname'] == hostname]))[0]
 
     def _deactivate_proxy(self) -> str:
         return 'shell=networksetup param1=-setsocksfirewallproxystate param2=' + self._default_device_name + ' param3=off'
@@ -96,13 +96,7 @@ class MullvadSocksProxyMenu:
         return 'shell=networksetup param1=-setsocksfirewallproxystate param2=' + self._default_device_name + ' param3=on'
 
     def _get_proxy_url(self, hostname: str) -> str:
-        if '-wireguard' in hostname:
-            proxy_url = hostname.split(
-                '-')[0] + '-wg.socks5.relays.mullvad.net'
-        else:
-            proxy_url = '-'.join(hostname.split('-')[:-1]) + '-socks5-' + hostname.split(
-                '-')[-1] + '.relays.mullvad.net'
-        return proxy_url
+        return sorted(set([x['socks_name'] for x in self._relays if x['hostname'] == hostname]))[0]
 
     def _set_proxy(self, proxy_url: str) -> str:
         return 'shell=networksetup param1=-setsocksfirewallproxy param2=' + self._default_device_name + ' param3=' + proxy_url + ' param4=1080'
@@ -128,49 +122,67 @@ class MullvadSocksProxyMenu:
             else:
                 fid.write(
                     self._not_secure + " | font='FontAwesome5Free-Solid' | size=16 | trim=false | templateImage=" + self.mullvad_icon + '\n')
-            if self._am_i_mullvad_reachable and self._status.get('mullvad_exit_ip') and self._get_proxy_status() != 'Off':
-                proxies = {'https': 'socks5://' +
-                           self._get_proxy_status() + ':1080'}
-                self._status = json.loads(
-                    (requests.get('https://am.i.mullvad.net/json', proxies=proxies, timeout=10).text))
-            fid.write('---' + '\n')
-            fid.write('IP: 			' + self._status.get('ip') + '\n')
-            if self._am_i_mullvad_reachable:
+            if self._status['mullvad_server_type'].lower() == 'wireguard':
+                if self._am_i_mullvad_reachable and self._status.get('mullvad_exit_ip') and self._get_proxy_status() != 'Off':
+                    proxies = {'https': 'socks5://' +
+                            self._get_proxy_status() + ':1080'}
+                    self._status = json.loads(
+                        (requests.get('https://am.i.mullvad.net/json', proxies=proxies, timeout=10).text))
+                fid.write('---' + '\n')
+                fid.write('IP: 			' + self._status.get('ip') + '\n')
+                if self._am_i_mullvad_reachable:
+                    if self._status.get('mullvad_exit_ip'):
+                        fid.write('Country: 		' +
+                                self._status.get('country') + '\n')
+                    if self._status.get('city'):
+                        fid.write('City: 		' + self._status.get('city') + '\n')
+                    if self._status.get('mullvad_exit_ip'):
+                        fid.write(
+                            'Hostname:	' + self._status.get('mullvad_exit_ip_hostname') + '\n')
+                        fid.write(
+                            'Type: 		' + self._status.get('mullvad_server_type') + '\n')
+                        fid.write('Organization:	' +
+                                self._status.get('organization') + '\n')
+                else:
+                    fid.write('Connected via mullvad!' + '\n')
+                    fid.write('Details are not available:' + '\n')
+                    fid.write('am.i.mullvad.net unreachable' + '\n')
+                fid.write('---' + '\n')
+                fid.write('Proxy:		' + self._get_proxy_status() + '\n')
+                fid.write('Off | terminal=false | refresh=true | ' +
+                        self._deactivate_proxy() + '\n')
                 if self._status.get('mullvad_exit_ip'):
-                    fid.write('Country: 		' +
-                              self._status.get('country') + '\n')
-                if self._status.get('city'):
-                    fid.write('City: 		' + self._status.get('city') + '\n')
-                if self._status.get('mullvad_exit_ip'):
-                    fid.write(
-                        'Hostname:	' + self._status.get('mullvad_exit_ip_hostname') + '\n')
-                    fid.write(
-                        'Type: 		' + self._status.get('mullvad_server_type') + '\n')
-                    fid.write('Organization:	' +
-                              self._status.get('organization') + '\n')
+                    fid.write('Mullvad default | terminal=false | refresh=true | ' +
+                            self._activate_proxy() + ' | ' + self._set_proxy('10.64.0.1') + '\n')
+                    fid.write('Countries:' + '\n')
+                    for country in self._get_countries():
+                        # Positive lookhead, do we have proxies in this country?
+                        if [x for x in self._get_cities(country) if self._get_hostnames(x)]:
+                            fid.write('--' + country + '\n')
+                            for city in self._get_cities(country):
+                                # Positive lookhead, do we have proxies in this city?
+                                if self._get_hostnames(city):
+                                    fid.write('----' + city + '\n')
+                                    for server in self._get_hostnames(city):
+                                        fid.write('------' + server + ' | terminal=false | refresh=true | ' + self._activate_proxy(
+                                        ) + ' | ' + self._set_proxy(self._get_proxy_url(server)) + '\n')
+                fid.write('---' + '\n')
+                fid.write(
+                    'Open Mullvad VPN | terminal=false | refresh=true | shell=open param1=-a param2="Mullvad VPN"' + '\n')
             else:
-                fid.write('Connected via mullvad!' + '\n')
-                fid.write('Details are not available:' + '\n')
-                fid.write('am.i.mullvad.net unreachable' + '\n')
-            fid.write('---' + '\n')
-            fid.write('Proxy:		' + self._get_proxy_status() + '\n')
-            fid.write('Off | terminal=false | refresh=true | ' +
-                      self._deactivate_proxy() + '\n')
-            if self._status.get('mullvad_exit_ip'):
-                fid.write('Mullvad default | terminal=false | refresh=true | ' +
-                          self._activate_proxy() + ' | ' + self._set_proxy('10.64.0.1') + '\n')
-                fid.write('Countries:' + '\n')
-                for country in self._get_countries():
-                    # Positive lookhead, do we have proxies in this country?
-                    if [x for x in self._get_cities(country) if self._get_hostnames(self._get_city_code(x))]:
-                        fid.write('--' + country + '\n')
-                        for city in self._get_cities(country):
-                            # Positive lookhead, do we have proxies in this city?
-                            if self._get_hostnames(self._get_city_code(city)):
-                                fid.write('----' + city + '\n')
-                                for server in self._get_hostnames(self._get_city_code(city)):
-                                    fid.write('------' + server + ' | terminal=false | refresh=true | ' + self._activate_proxy(
-                                    ) + ' | ' + self._set_proxy(self._get_proxy_url(server)) + '\n')
+                fid.write('---' + '\n')
+                fid.write('SOCKS Proxy not available!\nYour connected via OpenVPN!' + '\n')
+                fid.write('---')
+                if self._default_device_name:
+                    fid.write('Proxy:		' + self._get_proxy_status() + '\n')
+                    fid.write('Off | terminal=false | refresh=true | ' +
+                            self._deactivate_proxy() + '\n')
+                    fid.write('---' + '\n')
+                    fid.write(
+                        'Open Mullvad VPN | terminal=false | refresh=true | shell=open param1=-a param2="Mullvad VPN"' + '\n')
+                else:
+                    fid.write('No Interface available' + '\n')
+                fid.write('---' + '\n')
         else:
             fid.write(self._no_connection +
                       " | font='FontAwesome5Free-Solid' | size=16 | trim=false | templateImage=" + self.mullvad_icon + '\n')
