@@ -106,12 +106,8 @@ class MullvadSocksProxyMenu:
             ownership = 'Rented'
         return ownership
 
-    def _get_server_type(self, hostname: str) -> str:
-        if [x['stboot'] for x in self._relays if x['hostname'] == hostname][0]:
-            server_type = '-Diskless'
-        else:
-            server_type = ''
-        return server_type
+    def _get_diskless(self, hostname: str) -> str:
+        return [x['stboot'] for x in self._relays if x['hostname'] == hostname][0]
 
     def _deactivate_proxy(self) -> str:
         return 'shell=networksetup param1=-setsocksfirewallproxystate param2=' + self._default_device_name + ' param3=off'
@@ -164,13 +160,15 @@ class MullvadSocksProxyMenu:
                         fid.write(
                             'Hostname:	' + self._status.get('mullvad_exit_ip_hostname') + '\n')
                         fid.write(
-                            'Type: 		' + self._status.get('mullvad_server_type') + '\n')
+                            'Connection: 	' + self._status.get('mullvad_server_type') + '\n')
                         fid.write('Organization:	' +
                                   self._status.get('organization') + '\n')
                         fid.write(
                             'Ownership:	' + self._get_ownership(self._status.get('mullvad_exit_ip_hostname')) + '\n')
-                        fid.write(
-                            'Srv-Type:	' + self._get_server_type(self._status.get('mullvad_exit_ip_hostname')) + '\n')
+                        if self._get_diskless(self._status.get('mullvad_exit_ip_hostname')):
+                            fid.write('Type:		Diskless\n')
+                        else:
+                            fid.write('Type:		Conventional\n')
                 else:
                     fid.write('Connected via mullvad!' + '\n')
                     fid.write('Details are not available:' + '\n')
@@ -192,7 +190,11 @@ class MullvadSocksProxyMenu:
                                 if self._get_hostnames(city):
                                     fid.write('----' + city + '\n')
                                     for server in self._get_hostnames(city):
-                                        fid.write('------' + server + ' (' + self._get_ownership(server) + self._get_server_type(server) + ') | terminal=false | refresh=true | ' + self._activate_proxy(
+                                        if self._get_diskless(server):
+                                            srv_typ = '-Diskless'
+                                        else:
+                                            srv_typ = ''
+                                        fid.write('------' + server + ' (' + self._get_ownership(server) + srv_typ + ') | terminal=false | refresh=true | ' + self._activate_proxy(
                                         ) + ' | ' + self._set_proxy(self._get_proxy_url(server)) + '\n')
                 fid.write('---' + '\n')
                 fid.write(
