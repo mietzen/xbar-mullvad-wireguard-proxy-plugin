@@ -7,6 +7,14 @@ from io import StringIO
 import base64
 import pathlib
 import platform
+import re
+
+
+def natural_sort(l: list) -> list:
+    def convert(text): return int(text) if text.isdigit() else text.lower()
+    def alphanum_key(key): return [convert(c)
+                                   for c in re.split('([0-9]+)', key)]
+    return sorted(l, key=alphanum_key)
 
 
 def auto_line_break(string: str, char_threshold=80) -> str:
@@ -80,16 +88,30 @@ class MullvadSocksProxyMenu:
                         self._status['mullvad_exit_ip'] = False
 
     def _get_countries(self) -> list:
-        return sorted(set([x['country_name'] for x in self._relays]))
+        return natural_sort(set([x['country_name'] for x in self._relays]))
 
     def _get_cities(self, country: str) -> list:
-        return sorted(set([x['city_name'] for x in self._relays if x['country_name'] == country]))
+        return natural_sort(set([x['city_name'] for x in self._relays if x['country_name'] == country]))
 
     def _get_hostnames(self, city: str) -> list:
-        return sorted(set([x['hostname'] for x in self._relays if x['city_name'] == city]))
+        return natural_sort(set([x['hostname'] for x in self._relays if x['city_name'] == city]))
 
     def _get_ip_v4_address(self, hostname: str) -> str:
-        return sorted(set([x['ipv4_addr_in'] for x in self._relays if x['hostname'] == hostname]))[0]
+        return [x['ipv4_addr_in'] for x in self._relays if x['hostname'] == hostname][0]
+
+    def _get_ownership(self, hostname: str) -> str:
+        if [x['owned'] for x in self._relays if x['hostname'] == hostname][0]:
+            ownership = 'Owned'
+        else:
+            ownership = 'Rented'
+        return ownership
+
+    def _get_server_type(self, hostname: str) -> str:
+        if [x['stboot'] for x in self._relays if x['hostname'] == hostname][0]:
+            server_type = '-Diskless'
+        else:
+            server_type = ''
+        return server_type
 
     def _deactivate_proxy(self) -> str:
         return 'shell=networksetup param1=-setsocksfirewallproxystate param2=' + self._default_device_name + ' param3=off'
@@ -98,7 +120,7 @@ class MullvadSocksProxyMenu:
         return 'shell=networksetup param1=-setsocksfirewallproxystate param2=' + self._default_device_name + ' param3=on'
 
     def _get_proxy_url(self, hostname: str) -> str:
-        return sorted(set([x['socks_name'] for x in self._relays if x['hostname'] == hostname]))[0]
+        return [x['socks_name'] for x in self._relays if x['hostname'] == hostname][0]
 
     def _set_proxy(self, proxy_url: str) -> str:
         return 'shell=networksetup param1=-setsocksfirewallproxy param2=' + self._default_device_name + ' param3=' + proxy_url + ' param4=1080'
@@ -145,6 +167,10 @@ class MullvadSocksProxyMenu:
                             'Type: 		' + self._status.get('mullvad_server_type') + '\n')
                         fid.write('Organization:	' +
                                   self._status.get('organization') + '\n')
+                        fid.write(
+                            'Ownership:	' + self._get_ownership(self._status.get('mullvad_exit_ip_hostname')) + '\n')
+                        fid.write(
+                            'Srv-Type:	' + self._get_server_type(self._status.get('mullvad_exit_ip_hostname')) + '\n')
                 else:
                     fid.write('Connected via mullvad!' + '\n')
                     fid.write('Details are not available:' + '\n')
@@ -166,7 +192,7 @@ class MullvadSocksProxyMenu:
                                 if self._get_hostnames(city):
                                     fid.write('----' + city + '\n')
                                     for server in self._get_hostnames(city):
-                                        fid.write('------' + server + ' | terminal=false | refresh=true | ' + self._activate_proxy(
+                                        fid.write('------' + server + ' (' + self._get_ownership(server) + self._get_server_type(server) + ') | terminal=false | refresh=true | ' + self._activate_proxy(
                                         ) + ' | ' + self._set_proxy(self._get_proxy_url(server)) + '\n')
                 fid.write('---' + '\n')
                 fid.write(
