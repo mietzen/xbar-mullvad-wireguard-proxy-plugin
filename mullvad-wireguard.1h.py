@@ -174,7 +174,10 @@ class MullvadSocksProxyMenu:
                     fid.write('Details are not available:' + '\n')
                     fid.write('am.i.mullvad.net unreachable' + '\n')
                 fid.write('---' + '\n')
-                fid.write('Proxy:		' + self._get_proxy_status() + '\n')
+                proxy = self._get_proxy_status()
+                if proxy == '10.64.0.1':
+                    proxy = 'Mullvad default'
+                fid.write('Proxy:		' + proxy + '\n')
                 fid.write('Off | terminal=false | refresh=true | ' +
                           self._deactivate_proxy() + '\n')
                 if self._status.get('mullvad_exit_ip'):
@@ -205,7 +208,10 @@ class MullvadSocksProxyMenu:
                     'SOCKS Proxy not available!\nYour connected via OpenVPN!' + '\n')
                 fid.write('---')
                 if self._default_device_name:
-                    fid.write('Proxy:		' + self._get_proxy_status() + '\n')
+                    proxy = self._get_proxy_status()
+                    if proxy == '10.64.0.1':
+                        proxy = 'Mullvad default'
+                    fid.write('Proxy:		' + proxy + '\n')
                     fid.write('Off | terminal=false | refresh=true | ' +
                               self._deactivate_proxy() + '\n')
                     fid.write('---' + '\n')
@@ -225,7 +231,10 @@ class MullvadSocksProxyMenu:
                 fid.write('Mullvad API not reachable' + '\n')
                 fid.write('---' + '\n')
             if self._default_device_name:
-                fid.write('Proxy:		' + self._get_proxy_status() + '\n')
+                proxy = self._get_proxy_status()
+                if proxy == '10.64.0.1':
+                    proxy = 'Mullvad default'
+                fid.write('Proxy:		' + proxy + '\n')
                 fid.write('Off | terminal=false | refresh=true | ' +
                           self._deactivate_proxy() + '\n')
                 fid.write('---' + '\n')
