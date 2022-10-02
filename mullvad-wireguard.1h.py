@@ -81,6 +81,7 @@ class MullvadSocksProxyMenu:
                     # Ping wireguard default dns to check if we might be connected to mullvad via wireguard
                     if subprocess.call(['ping', '-c', '1', '10.64.0.1']) == 0:
                         self._status['mullvad_exit_ip'] = True
+                        self._status['mullvad_server_type'] = 'wireguard'
                         self._relays = [
                             x for x in self._relays if x['type'] == 'wireguard']
                     else:
@@ -136,36 +137,36 @@ class MullvadSocksProxyMenu:
         # Write menu to buffer before printing in case we run in to some errors
         fid = StringIO()
         if self._online and self._mullvad_api_reachable:
-            if self._status.get('mullvad_exit_ip'):
+            if self._status['mullvad_exit_ip']:
                 fid.write(
                     self._secure + " | font='FontAwesome5Free-Solid' | size=16 | trim=false | templateImage=" + self.mullvad_icon + '\n')
             else:
                 fid.write(
                     self._not_secure + " | font='FontAwesome5Free-Solid' | size=16 | trim=false | templateImage=" + self.mullvad_icon + '\n')
             if self._status['mullvad_server_type'].lower() == 'wireguard':
-                if self._am_i_mullvad_reachable and self._status.get('mullvad_exit_ip') and self._get_proxy_status() != 'Off':
+                if self._am_i_mullvad_reachable and self._status['mullvad_exit_ip'] and self._get_proxy_status() != 'Off':
                     proxies = {'https': 'socks5://' +
                                self._get_proxy_status() + ':1080'}
                     self._status = json.loads(
                         (requests.get('https://am.i.mullvad.net/json', proxies=proxies, timeout=10).text))
                 fid.write('---' + '\n')
-                fid.write('IP: 			' + self._status.get('ip') + '\n')
+                fid.write('IP: 			' + self._status['ip'] + '\n')
                 if self._am_i_mullvad_reachable:
-                    if self._status.get('mullvad_exit_ip'):
+                    if self._status['mullvad_exit_ip']:
                         fid.write('Country: 		' +
-                                  self._status.get('country') + '\n')
-                    if self._status.get('city'):
-                        fid.write('City: 		' + self._status.get('city') + '\n')
-                    if self._status.get('mullvad_exit_ip'):
+                                  self._status['country'] + '\n')
+                        # Sometimes city is missing
+                        if self._status['city']:
+                            fid.write('City: 		' + self._status['city'] + '\n')
                         fid.write(
-                            'Hostname:	' + self._status.get('mullvad_exit_ip_hostname') + '\n')
+                            'Hostname:	' + self._status['mullvad_exit_ip_hostname'] + '\n')
                         fid.write(
-                            'Connection: 	' + self._status.get('mullvad_server_type') + '\n')
+                            'Connection: 	' + self._status['mullvad_server_type'] + '\n')
                         fid.write('Organization:	' +
-                                  self._status.get('organization') + '\n')
+                                  self._status['organization'] + '\n')
                         fid.write(
-                            'Ownership:	' + self._get_ownership(self._status.get('mullvad_exit_ip_hostname')) + '\n')
-                        if self._get_diskless(self._status.get('mullvad_exit_ip_hostname')):
+                            'Ownership:	' + self._get_ownership(self._status['mullvad_exit_ip_hostname']) + '\n')
+                        if self._get_diskless(self._status['mullvad_exit_ip_hostname']):
                             fid.write('Type:		Diskless\n')
                         else:
                             fid.write('Type:		Conventional\n')
@@ -180,7 +181,7 @@ class MullvadSocksProxyMenu:
                 fid.write('Proxy:		' + proxy + '\n')
                 fid.write('Off | terminal=false | refresh=true | ' +
                           self._deactivate_proxy() + '\n')
-                if self._status.get('mullvad_exit_ip'):
+                if self._status['mullvad_exit_ip']:
                     fid.write('Mullvad default | terminal=false | refresh=true | ' +
                               self._activate_proxy() + ' | ' + self._set_proxy('10.64.0.1') + '\n')
                     fid.write('Countries:' + '\n')
