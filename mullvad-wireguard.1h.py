@@ -29,7 +29,7 @@ def auto_line_break(string: str, char_threshold=80) -> str:
 
 
 class MullvadSocksProxyMenu:
-    with open(pathlib.Path(__file__).parent.resolve().joinpath('mullvad_icon.png'), 'rb') as icon:
+    with open(pathlib.Path(__file__).parent.resolve().joinpath('assets/mullvad_icon.png'), 'rb') as icon:
         mullvad_icon = base64.b64encode(icon.read()).decode('utf-8')
 
     def __init__(self):
@@ -107,7 +107,7 @@ class MullvadSocksProxyMenu:
             ownership = 'Rented'
         return ownership
 
-    def _get_diskless(self, hostname: str) -> str:
+    def _get_stboot(self, hostname: str) -> bool:
         return [x['stboot'] for x in self._relays if x['hostname'] == hostname][0]
 
     def _deactivate_proxy(self) -> str:
@@ -166,7 +166,7 @@ class MullvadSocksProxyMenu:
                                   self._status['organization'] + '\n')
                         fid.write(
                             'Ownership:	' + self._get_ownership(self._status['mullvad_exit_ip_hostname']) + '\n')
-                        if self._get_diskless(self._status['mullvad_exit_ip_hostname']):
+                        if self._get_stboot(self._status['mullvad_exit_ip_hostname']):
                             fid.write('Type:		Diskless\n')
                         else:
                             fid.write('Type:		Conventional\n')
@@ -194,7 +194,7 @@ class MullvadSocksProxyMenu:
                                 if self._get_hostnames(city):
                                     fid.write('----' + city + '\n')
                                     for server in self._get_hostnames(city):
-                                        if self._get_diskless(server):
+                                        if self._get_stboot(server):
                                             srv_typ = '-Diskless'
                                         else:
                                             srv_typ = ''
