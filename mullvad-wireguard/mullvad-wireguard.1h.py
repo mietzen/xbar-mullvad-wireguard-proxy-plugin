@@ -1,5 +1,5 @@
-#!/opt/homebrew/Caskroom/miniconda/base/bin/python
-import string
+#!.venv/bin/python3.11
+
 import requests
 import json
 import subprocess
@@ -8,13 +8,15 @@ import base64
 import pathlib
 import platform
 import re
+import os
+import pypac
 
 
-def natural_sort(l: list) -> list:
+def natural_sort(unsorted_list: list) -> list:
     def convert(text): return int(text) if text.isdigit() else text.lower()
     def alphanum_key(key): return [convert(c)
                                    for c in re.split('([0-9]+)', key)]
-    return sorted(l, key=alphanum_key)
+    return sorted(unsorted_list, key=alphanum_key)
 
 
 def auto_line_break(string: str, char_threshold=80) -> str:
@@ -36,7 +38,6 @@ class MullvadSocksProxyMenu:
         self._secure = " "
         self._not_secure = " "
         self._no_connection = " "
-
         self._online = None
         self._mullvad_api_reachable = None
         self._am_i_mullvad_reachable = None
@@ -44,7 +45,7 @@ class MullvadSocksProxyMenu:
         self._status = None
         self._relays = None
         self._default_device_name = subprocess.check_output(
-            "networksetup -listnetworkserviceorder | grep $(netstat -rn | grep default | awk '{ print $4 }' | head -n1 | xargs) | cut -d ':' -f 2 | cut -d ',' -f 1 | tr -d '[:space:]'", shell=True, text=True)
+            "networksetup -listnetworkserviceorder | grep -B 1 $(netstat -rn | grep default | awk '{ print $4 }' | head -n1 | xargs) | head -n1 | cut -d' ' -f2 | tr -d '[:space:]'", shell=True, text=True)
         self._check_if_online()
         self._load_mullvad_data()
 
@@ -61,15 +62,16 @@ class MullvadSocksProxyMenu:
                 self._relays = json.loads((requests.get(
                     'https://api.mullvad.net/www/relays/all/', timeout=10).text))
                 self._relays = [x for x in self._relays if x['active']
-                                and not x['status_messages'] and x['type'] == 'wireguard']
+                                and x['type'] == 'wireguard']
                 self._mullvad_api_reachable = True
             except (requests.ConnectionError, requests.Timeout, AttributeError, json.JSONDecodeError):
                 self._mullvad_api_reachable = False
 
             if self._mullvad_api_reachable:
                 try:
+                    pac_session = pypac.PACSession(pac_enabled=self._get_proxy_type() in ['PAC', 'WPAD'], pac=pypac.get_pac(url=self._get_auto_proxy_url()))
                     self._status = json.loads(
-                        (requests.get('https://am.i.mullvad.net/json', timeout=10).text))
+                        (pac_session.get('https://am.i.mullvad.net/json', timeout=10).text))
                     self._am_i_mullvad_reachable = True
                     self._status['mullvad_server_type'].lower()
                 except (requests.ConnectionError, requests.Timeout, AttributeError, json.JSONDecodeError):
@@ -79,7 +81,7 @@ class MullvadSocksProxyMenu:
                         "dig +short myip.opendns.com @resolver1.opendns.com | tr -d '[:space:]'", shell=True, text=True)
                     self._status = {'ip': external_ip}
                     # Ping wireguard default dns to check if we might be connected to mullvad via wireguard
-                    if subprocess.call(['ping', '-c', '1', '10.64.0.1']) == 0:
+                    if subprocess.call(['ping', '-c', '1', '10.64.0.1'], stdout=subprocess.DEVNULL, stderr=subprocess.STDOUT) == 0:
                         self._status['mullvad_exit_ip'] = True
                         self._status['mullvad_server_type'] = 'wireguard'
                         self._relays = [
@@ -101,37 +103,117 @@ class MullvadSocksProxyMenu:
         return [x['ipv4_addr_in'] for x in self._relays if x['hostname'] == hostname][0]
 
     def _get_ownership(self, hostname: str) -> str:
-        if [x['owned'] for x in self._relays if x['hostname'] == hostname][0]:
-            ownership = 'Owned'
-        else:
-            ownership = 'Rented'
+        ownership = 'Unknown'
+        ownership_status = [x['owned']
+                            for x in self._relays if x['hostname'] == hostname]
+        if ownership_status:
+            if ownership_status[0]:
+                ownership = 'Owned'
+            else:
+                ownership = 'Rented'
         return ownership
 
     def _get_stboot(self, hostname: str) -> bool:
-        return [x['stboot'] for x in self._relays if x['hostname'] == hostname][0]
+        stboot = None
+        stboot_status = [x['stboot']
+                         for x in self._relays if x['hostname'] == hostname]
+        if stboot_status:
+            stboot = stboot_status[0]
 
-    def _deactivate_proxy(self) -> str:
-        return 'shell=networksetup param1=-setsocksfirewallproxystate param2=' + self._default_device_name + ' param3=off'
+        return stboot
 
-    def _activate_proxy(self) -> str:
-        return 'shell=networksetup param1=-setsocksfirewallproxystate param2=' + self._default_device_name + ' param3=on'
+    def _deactivate_socks_proxy(self) -> str:
+        proxy_type = self._get_proxy_type()
+        deactivate_proxy_str = ''
+        if proxy_type:
+            if proxy_type == 'SOCKS5':
+                deactivate_proxy_str = 'Deactivate SOCKS5 Proxy | terminal=false | refresh=true | shell=networksetup param1=-setsocksfirewallproxystate param2="' + \
+                    self._default_device_name + '" param3=off' + '\n'
+            if proxy_type == 'PAC':
+                with open('./.pac_url', 'w') as fid:
+                    fid.write(self._get_auto_proxy_url())
+                deactivate_proxy_str = 'Deactivate Proxy Auto-Configuration | terminal=false | refresh=true | shell=networksetup param1=-setautoproxystate param2="' + \
+                    self._default_device_name + '" param3=off' + '\n'
+            if proxy_type == 'WPAD':
+                deactivate_proxy_str = 'Deactivate Web Proxy Auto-Discovery | terminal=false | refresh=true | shell=networksetup param1=-setproxyautodiscovery param2="' + \
+                    self._default_device_name + '" param3=off' + '\n'
+
+        return deactivate_proxy_str
+
+    def _activate_pac(self) -> str:
+        output = ''
+        if self._pac_url:
+            pac_url = ''
+            with open('./.pac_url', 'r') as fid:
+                pac_url = fid.read()
+            output = ' | terminal=false | refresh=true | shell=networksetup param1=-setautoproxyurl param2="' + \
+                self._default_device_name + '" param3=' + pac_url
+        return output
+
+    def _activate_socks_proxy(self) -> str:
+        return 'shell=networksetup param1=-setsocksfirewallproxystate param2="' + self._default_device_name + '" param3=on'
+
+    def _pac_url(self) -> bool:
+        pac_url = pathlib.Path("./.pac_url")
+        return pac_url.is_file()
 
     def _get_proxy_url(self, hostname: str) -> str:
         return [x['socks_name'] for x in self._relays if x['hostname'] == hostname][0]
 
-    def _set_proxy(self, proxy_url: str) -> str:
-        return 'shell=networksetup param1=-setsocksfirewallproxy param2=' + self._default_device_name + ' param3=' + proxy_url + ' param4=1080'
+    def _set_socks_proxy(self, proxy_url: str) -> str:
+        return 'shell=networksetup param1=-setsocksfirewallproxy param2="' + self._default_device_name + '" param3=' + proxy_url + ' param4=1080'
 
-    def _get_proxy_status(self) -> str:
+    def _get_auto_proxy_url(self) -> str | None:
+        auto_proxy_url = None
+        result = self._query_networksetup('getautoproxyurl')
+        if result.get('Enabled') == 'Yes':
+            auto_proxy_url = result.get('URL')
+        return auto_proxy_url
+
+    def _get_current_socks_proxy_server(self) -> str | None:
+        proxy_server = None
+        result = self._query_networksetup('getsocksfirewallproxy')
+        if result.get('Enabled') == 'Yes':
+            proxy_server = result.get('Server')
+        return proxy_server
+
+    def _get_proxy_type(self) -> str | None:
+        type = None
+        if self._query_networksetup('getautoproxyurl').get('Enabled') == 'Yes':
+            type = 'PAC'
+        else:
+            if self._query_networksetup('getproxyautodiscovery').get('Auto Proxy Discovery') == 'On':
+                type = 'WPAD'
+            else:
+                if self._query_networksetup('getsocksfirewallproxy').get('Enabled') == 'Yes':
+                    type = 'SOCKS5'
+        return type
+
+    def _get_proxy_str(self) -> str:
+        proxy_type = self._get_proxy_type()
+        proxy_str = 'None'
+        if proxy_type == 'SOCKS5':
+            socks_proxy = self._get_current_socks_proxy_server()
+            if socks_proxy:
+                if socks_proxy == '10.64.0.1':
+                    proxy_str = 'Mullvad default'
+                else:
+                    proxy_str = socks_proxy
+        if proxy_type == 'PAC':
+            proxy_str = 'PAC via: ' + self._get_auto_proxy_url()
+        if proxy_type == 'WPAD':
+            proxy_str = 'WPAD Proxy Auto Discovery'
+        return proxy_str
+
+    def _query_networksetup(self, command) -> dict:
         result = {}
-        for i in subprocess.check_output('networksetup -getsocksfirewallproxy ' + self._default_device_name, shell=True, text=True)[:-1].split('\n'):
+        cmd_out = subprocess.check_output(
+            'networksetup -' + command + ' "' + self._default_device_name + '"', shell=True, text=True)[:-1].split('\n')
+        for i in cmd_out:
             key = i.split(': ')[0]
             value = i.split(': ')[1]
             result[key] = value
-        if result.get('Enabled') == 'Yes':
-            return result.get('Server')
-        else:
-            return 'Off'
+        return result
 
     def print_menu(self):
         # Write menu to buffer before printing in case we run in to some errors
@@ -143,10 +225,10 @@ class MullvadSocksProxyMenu:
             else:
                 fid.write(
                     self._not_secure + " | font='FontAwesome5Free-Solid' | size=16 | trim=false | templateImage=" + self.mullvad_icon + '\n')
-            if self._status['mullvad_server_type'].lower() == 'wireguard':
-                if self._am_i_mullvad_reachable and self._status['mullvad_exit_ip'] and self._get_proxy_status() != 'Off':
+            if 'wireguard' in self._status['mullvad_server_type'].lower():
+                if self._am_i_mullvad_reachable and self._status['mullvad_exit_ip'] and self._get_proxy_type() == 'SOCKS5':
                     proxies = {'https': 'socks5://' +
-                               self._get_proxy_status() + ':1080'}
+                               self._get_current_socks_proxy_server() + ':1080'}
                     self._status = json.loads(
                         (requests.get('https://am.i.mullvad.net/json', proxies=proxies, timeout=10).text))
                 fid.write('---' + '\n')
@@ -168,22 +250,33 @@ class MullvadSocksProxyMenu:
                             'Ownership:	' + self._get_ownership(self._status['mullvad_exit_ip_hostname']) + '\n')
                         if self._get_stboot(self._status['mullvad_exit_ip_hostname']):
                             fid.write('Type:		Diskless\n')
+                        elif self._get_stboot(self._status['mullvad_exit_ip_hostname']) is None:
+                            fid.write('Type:		Unknown\n')
                         else:
                             fid.write('Type:		Conventional\n')
+                        messages = [x['status_messages'] for x in self._relays if x['hostname']
+                                    == self._status['mullvad_exit_ip_hostname']][0]
+                        if messages:
+                            message = '\n'.join([x['message']
+                                                for x in messages])
+                            fid.write('---\nMessages:	!!! \n' +
+                                      auto_line_break(message, 50) + '\n')
+                        else:
+                            fid.write('---\nMessages:	None\n')
                 else:
                     fid.write('Connected via mullvad!' + '\n')
                     fid.write('Details are not available:' + '\n')
                     fid.write('am.i.mullvad.net unreachable' + '\n')
                 fid.write('---' + '\n')
-                proxy = self._get_proxy_status()
-                if proxy == '10.64.0.1':
-                    proxy = 'Mullvad default'
-                fid.write('Proxy:		' + proxy + '\n')
-                fid.write('Off | terminal=false | refresh=true | ' +
-                          self._deactivate_proxy() + '\n')
-                if self._status['mullvad_exit_ip']:
+                fid.write('Proxy:		' + self._get_proxy_str() + '\n')
+                if self._get_proxy_type():
+                    fid.write(self._deactivate_socks_proxy())
+                if self._status['mullvad_exit_ip'] and self._get_proxy_type() not in ['PAC', 'WPAD']:
+                    if self._pac_url() and not self._get_proxy_type():
+                        fid.write('Use Proxy Auto-Configuration' +
+                                  self._activate_pac() + '\n')
                     fid.write('Mullvad default | terminal=false | refresh=true | ' +
-                              self._activate_proxy() + ' | ' + self._set_proxy('10.64.0.1') + '\n')
+                              self._activate_socks_proxy() + ' | ' + self._set_socks_proxy('10.64.0.1') + '\n')
                     fid.write('Countries:' + '\n')
                     for country in self._get_countries():
                         # Positive lookahead, do we have proxies in this country?
@@ -198,8 +291,8 @@ class MullvadSocksProxyMenu:
                                             srv_typ = '-Diskless'
                                         else:
                                             srv_typ = ''
-                                        fid.write('------' + server + ' (' + self._get_ownership(server) + srv_typ + ') | terminal=false | refresh=true | ' + self._activate_proxy(
-                                        ) + ' | ' + self._set_proxy(self._get_proxy_url(server)) + '\n')
+                                        fid.write('------' + server + ' (' + self._get_ownership(server) + srv_typ + ') | terminal=false | refresh=true | ' + self._activate_socks_proxy(
+                                        ) + ' | ' + self._set_socks_proxy(self._get_proxy_url(server)) + '\n')
                 fid.write('---' + '\n')
                 fid.write(
                     'Open Mullvad VPN | terminal=false | refresh=true | shell=open param1=-a param2="Mullvad VPN"' + '\n')
@@ -209,12 +302,9 @@ class MullvadSocksProxyMenu:
                     'SOCKS Proxy not available!\nYour connected via OpenVPN!' + '\n')
                 fid.write('---')
                 if self._default_device_name:
-                    proxy = self._get_proxy_status()
-                    if proxy == '10.64.0.1':
-                        proxy = 'Mullvad default'
-                    fid.write('Proxy:		' + proxy + '\n')
-                    fid.write('Off | terminal=false | refresh=true | ' +
-                              self._deactivate_proxy() + '\n')
+                    fid.write('Proxy:		' + self._get_proxy_str() + '\n')
+                    if self._get_proxy_type():
+                        fid.write(self._deactivate_socks_proxy())
                     fid.write('---' + '\n')
                     fid.write(
                         'Open Mullvad VPN | terminal=false | refresh=true | shell=open param1=-a param2="Mullvad VPN"' + '\n')
@@ -225,19 +315,16 @@ class MullvadSocksProxyMenu:
             fid.write(self._no_connection +
                       " | font='FontAwesome5Free-Solid' | size=16 | trim=false | templateImage=" + self.mullvad_icon + '\n')
             fid.write('---' + '\n')
-            if self._online == False:
+            if not self._online:
                 fid.write('Offline' + '\n')
                 fid.write('---')
-            if self._mullvad_api_reachable == False:
+            if not self._mullvad_api_reachable:
                 fid.write('Mullvad API not reachable' + '\n')
                 fid.write('---' + '\n')
             if self._default_device_name:
-                proxy = self._get_proxy_status()
-                if proxy == '10.64.0.1':
-                    proxy = 'Mullvad default'
-                fid.write('Proxy:		' + proxy + '\n')
-                fid.write('Off | terminal=false | refresh=true | ' +
-                          self._deactivate_proxy() + '\n')
+                fid.write('Proxy:		' + self._get_proxy_str() + '\n')
+                if self._get_proxy_type():
+                    fid.write(self._deactivate_socks_proxy())
                 fid.write('---' + '\n')
                 fid.write(
                     'Open Mullvad VPN | terminal=false | refresh=true | shell=open param1=-a param2="Mullvad VPN"' + '\n')
@@ -248,25 +335,29 @@ class MullvadSocksProxyMenu:
         print(fid.getvalue())
 
 
-if platform.system() == 'Darwin':
-    try:
-        mullvad_socks_proxy_menu = MullvadSocksProxyMenu()
-        mullvad_socks_proxy_menu.print_menu()
-    except Exception as exception:
+if "DEBUG" in os.environ:
+    mullvad_socks_proxy_menu = MullvadSocksProxyMenu()
+    mullvad_socks_proxy_menu.print_menu()
+else:
+    if platform.system() == 'Darwin':
+        try:
+            mullvad_socks_proxy_menu = MullvadSocksProxyMenu()
+            mullvad_socks_proxy_menu.print_menu()
+        except Exception as exception:
+            print('' + " | font='FontAwesome5Free-Solid' | size=16 | trim=false | templateImage=" +
+                  MullvadSocksProxyMenu.mullvad_icon)
+            print('---')
+            print('Error')
+            print('---')
+            print(auto_line_break(str(exception), 30))
+            print('---')
+            print('Refresh now | refresh=true')
+    else:
         print('' + " | font='FontAwesome5Free-Solid' | size=16 | trim=false | templateImage=" +
               MullvadSocksProxyMenu.mullvad_icon)
         print('---')
         print('Error')
         print('---')
-        print(auto_line_break(str(exception), 30))
+        print('Sorry atm macOS only')
         print('---')
         print('Refresh now | refresh=true')
-else:
-    print('' + " | font='FontAwesome5Free-Solid' | size=16 | trim=false | templateImage=" +
-          MullvadSocksProxyMenu.mullvad_icon)
-    print('---')
-    print('Error')
-    print('---')
-    print('Sorry atm macOS only')
-    print('---')
-    print('Refresh now | refresh=true')
