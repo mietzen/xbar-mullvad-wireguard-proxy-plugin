@@ -2,3 +2,4 @@
 .trunk
 .DS_Store
 .venv
+.vscode/*

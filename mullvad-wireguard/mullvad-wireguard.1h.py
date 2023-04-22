@@ -1,5 +1,6 @@
 #!.venv/bin/python3.11
 
+import ipaddress
 import requests
 import json
 import subprocess
@@ -10,7 +11,29 @@ import platform
 import re
 import os
 import pypac
+import shlex
 
+
+def gen_xbar_shell_cmd(*nargs) -> str:
+    cmd = ''
+    if nargs:
+        cmd = ' | terminal=false | refresh=true | '
+    j = 0
+    k = 1
+    for i, x in enumerate(nargs):
+        x_splited = shlex.split(x, posix=False)
+        if j == 0:
+            cmd += 'shell=' + x_splited[0]
+        for y in x_splited[k:]:
+            j+=1
+            cmd += ' param{0}={1}'.format(j,y)
+        i += 1
+        j+=1
+        k=0
+        if i < len(nargs):
+            cmd += ' param{0}=&&'.format(j)
+
+    return cmd.rstrip()
 
 def natural_sort(unsorted_list: list) -> list:
     def convert(text): return int(text) if text.isdigit() else text.lower()
@@ -41,7 +64,7 @@ class MullvadSocksProxyMenu:
         self._online = None
         self._mullvad_api_reachable = None
         self._am_i_mullvad_reachable = None
-
+        self._proxy_bypass_str = None
         self._status = None
         self._relays = None
         self._default_device_name = subprocess.check_output(
@@ -127,16 +150,16 @@ class MullvadSocksProxyMenu:
         deactivate_proxy_str = ''
         if proxy_type:
             if proxy_type == 'SOCKS5':
-                deactivate_proxy_str = 'Deactivate SOCKS5 Proxy | terminal=false | refresh=true | shell=networksetup param1=-setsocksfirewallproxystate param2="' + \
-                    self._default_device_name + '" param3=off' + '\n'
+                cmd = 'networksetup -setsocksfirewallproxystate "{}" off'.format(self._default_device_name)
+                deactivate_proxy_str = 'Deactivate SOCKS5 Proxy' + gen_xbar_shell_cmd(cmd) + '\n'
             if proxy_type == 'PAC':
                 with open('./.pac_url', 'w') as fid:
                     fid.write(self._get_auto_proxy_url())
-                deactivate_proxy_str = 'Deactivate Proxy Auto-Configuration | terminal=false | refresh=true | shell=networksetup param1=-setautoproxystate param2="' + \
-                    self._default_device_name + '" param3=off' + '\n'
+                cmd = 'networksetup -setautoproxystate "{}" off'.format(self._default_device_name)
+                deactivate_proxy_str = 'Deactivate Proxy Auto-Configuration' + gen_xbar_shell_cmd(cmd) + '\n'
             if proxy_type == 'WPAD':
-                deactivate_proxy_str = 'Deactivate Web Proxy Auto-Discovery | terminal=false | refresh=true | shell=networksetup param1=-setproxyautodiscovery param2="' + \
-                    self._default_device_name + '" param3=off' + '\n'
+                cmd = 'networksetup -setproxyautodiscovery "{}" off'.format(self._default_device_name)
+                deactivate_proxy_str = 'Deactivate Web Proxy Auto-Discovery' + gen_xbar_shell_cmd(cmd) + '\n'
 
         return deactivate_proxy_str
 
@@ -146,12 +169,27 @@ class MullvadSocksProxyMenu:
             pac_url = ''
             with open('./.pac_url', 'r') as fid:
                 pac_url = fid.read()
-            output = ' | terminal=false | refresh=true | shell=networksetup param1=-setautoproxyurl param2="' + \
-                self._default_device_name + '" param3=' + pac_url
+            activate_pac = 'networksetup -setautoproxyurl "{0}" {1}'.format(self._default_device_name, pac_url)
+            set_by_pass = "networksetup -setproxybypassdomains \"'{0}'\" \"'{1}'\"".format(self._default_device_name, self._get_proxy_bypass_str())
+            output = gen_xbar_shell_cmd(activate_pac, set_by_pass)
         return output
 
-    def _activate_socks_proxy(self) -> str:
-        return 'shell=networksetup param1=-setsocksfirewallproxystate param2="' + self._default_device_name + '" param3=on'
+    def _set_and_activate_socks_proxy(self, proxy_url: str) -> str:
+        set_proxy = "networksetup -setsocksfirewallproxy \"'{0}'\" {1} 1080".format(self._default_device_name, proxy_url)
+        set_by_pass = "networksetup -setproxybypassdomains \"'{0}'\" \"'{1}'\"".format(self._default_device_name, self._get_proxy_bypass_str())
+        activate_proxy = "networksetup -setsocksfirewallproxystate \"'{0}'\" on".format(self._default_device_name)
+        return gen_xbar_shell_cmd(set_proxy, set_by_pass, activate_proxy)
+
+    def _get_proxy_bypass_str(self) -> str:
+        if not self._proxy_bypass_str:
+            net_info = self._query_networksetup('getinfo')
+            network = str(ipaddress.IPv4Network((net_info['IP address'], net_info['Subnet mask']), False))
+            search_domain = '*.' + subprocess.check_output("scutil --dns | grep -m 1 'search domain\[0\] : ' | cut -d':' -f2 | tr -d '[:space:]'", shell=True, text=True)
+
+            self._proxy_bypass_str = "127.0.0.1/8 169.254.0.0/16 " + \
+                network + ' ' + \
+                'localhost *.local ' + search_domain
+        return self._proxy_bypass_str
 
     def _pac_url(self) -> bool:
         pac_url = pathlib.Path("./.pac_url")
@@ -160,8 +198,6 @@ class MullvadSocksProxyMenu:
     def _get_proxy_url(self, hostname: str) -> str:
         return [x['socks_name'] for x in self._relays if x['hostname'] == hostname][0]
 
-    def _set_socks_proxy(self, proxy_url: str) -> str:
-        return 'shell=networksetup param1=-setsocksfirewallproxy param2="' + self._default_device_name + '" param3=' + proxy_url + ' param4=1080'
 
     def _get_auto_proxy_url(self) -> str | None:
         auto_proxy_url = None
@@ -210,9 +246,10 @@ class MullvadSocksProxyMenu:
         cmd_out = subprocess.check_output(
             'networksetup -' + command + ' "' + self._default_device_name + '"', shell=True, text=True)[:-1].split('\n')
         for i in cmd_out:
-            key = i.split(': ')[0]
-            value = i.split(': ')[1]
-            result[key] = value
+            if len(i.split(': ')) > 1:
+                key = i.split(': ')[0]
+                value = i.split(': ')[1]
+                result[key] = value
         return result
 
     def print_menu(self):
@@ -275,8 +312,7 @@ class MullvadSocksProxyMenu:
                     if self._pac_url() and not self._get_proxy_type():
                         fid.write('Use Proxy Auto-Configuration' +
                                   self._activate_pac() + '\n')
-                    fid.write('Mullvad default | terminal=false | refresh=true | ' +
-                              self._activate_socks_proxy() + ' | ' + self._set_socks_proxy('10.64.0.1') + '\n')
+                    fid.write('Mullvad default' + self._set_and_activate_socks_proxy('10.64.0.1') + '\n')
                     fid.write('Countries:' + '\n')
                     for country in self._get_countries():
                         # Positive lookahead, do we have proxies in this country?
@@ -291,11 +327,10 @@ class MullvadSocksProxyMenu:
                                             srv_typ = '-Diskless'
                                         else:
                                             srv_typ = ''
-                                        fid.write('------' + server + ' (' + self._get_ownership(server) + srv_typ + ') | terminal=false | refresh=true | ' + self._activate_socks_proxy(
-                                        ) + ' | ' + self._set_socks_proxy(self._get_proxy_url(server)) + '\n')
+                                        fid.write('------' + server + ' (' + self._get_ownership(server) + srv_typ + ')' + self._set_and_activate_socks_proxy(server) + '\n')
                 fid.write('---' + '\n')
                 fid.write(
-                    'Open Mullvad VPN | terminal=false | refresh=true | shell=open param1=-a param2="Mullvad VPN"' + '\n')
+                    'Open Mullvad VPN' + gen_xbar_shell_cmd("open -a \"'Mullvad VPN'\"") + '\n')
             else:
                 fid.write('---' + '\n')
                 fid.write(
@@ -307,7 +342,7 @@ class MullvadSocksProxyMenu:
                         fid.write(self._deactivate_socks_proxy())
                     fid.write('---' + '\n')
                     fid.write(
-                        'Open Mullvad VPN | terminal=false | refresh=true | shell=open param1=-a param2="Mullvad VPN"' + '\n')
+                        'Open Mullvad VPN' + gen_xbar_shell_cmd("open -a \"'Mullvad VPN'\"") + '\n')
                 else:
                     fid.write('No Interface available' + '\n')
                 fid.write('---' + '\n')
@@ -327,7 +362,7 @@ class MullvadSocksProxyMenu:
                     fid.write(self._deactivate_socks_proxy())
                 fid.write('---' + '\n')
                 fid.write(
-                    'Open Mullvad VPN | terminal=false | refresh=true | shell=open param1=-a param2="Mullvad VPN"' + '\n')
+                    'Open Mullvad VPN' + gen_xbar_shell_cmd("open -a \"'Mullvad VPN'\"") + '\n')
             else:
                 fid.write('No Interface available' + '\n')
             fid.write('---' + '\n')
