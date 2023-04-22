@@ -330,7 +330,7 @@ class MullvadSocksProxyMenu(metaclass=Singleton):
                                                   self._call_self_cli('set_and_activate_socks_proxy', self._get_proxy_url(server)) + '\n')
                 fid.write('---' + '\n')
                 fid.write(
-                    'Open Mullvad VPN' + gen_xbar_shell_cmd("open -a \"'Mullvad VPN'\"") + '\n')
+                    'Open Mullvad VPN' + gen_xbar_shell_cmd("open -a 'Mullvad VPN'") + '\n')
             else:
                 fid.write('---' + '\n')
                 fid.write(
@@ -342,7 +342,7 @@ class MullvadSocksProxyMenu(metaclass=Singleton):
                         fid.write(self._deactivate_socks_proxy_str())
                     fid.write('---' + '\n')
                     fid.write(
-                        'Open Mullvad VPN' + gen_xbar_shell_cmd("open -a \"'Mullvad VPN'\"") + '\n')
+                        'Open Mullvad VPN' + gen_xbar_shell_cmd("open -a 'Mullvad VPN'") + '\n')
                 else:
                     fid.write('No Interface available' + '\n')
                 fid.write('---' + '\n')
@@ -362,7 +362,7 @@ class MullvadSocksProxyMenu(metaclass=Singleton):
                     fid.write(self._deactivate_socks_proxy_str())
                 fid.write('---' + '\n')
                 fid.write(
-                    'Open Mullvad VPN' + gen_xbar_shell_cmd("open -a \"'Mullvad VPN'\"") + '\n')
+                    'Open Mullvad VPN' + gen_xbar_shell_cmd("open -a 'Mullvad VPN'") + '\n')
             else:
                 fid.write('No Interface available' + '\n')
             fid.write('---' + '\n')
