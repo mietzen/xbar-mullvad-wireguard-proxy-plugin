@@ -1,6 +1,19 @@
 # xbar Mullvad Wireguard SOCKS5 proxy switcher
 
 This [xbar](https://github.com/matryer/xbar) plugin let's you switch between Mullvad WireGuard proxies.
+It is especially useful if you got a Mullvad configured on your router.
+
+## Install
+
+Download the shell script:
+
+```Shell
+wget -qo "~/Library/Application Support/xbar/plugins/mullvad-wireguard.1h.sh" https://raw.githubusercontent.com/mietzen/xbar-mullvad-wireguard-proxy-plugin/main/mullvad-wireguard.1h.sh
+```
+
+On the initial start the a `venv` will created and the remaining assets are loaded.
+
+## Usage
 
 ![alt text](assets/demo.gif "Demo Gif")
 
@@ -8,7 +21,7 @@ It can also be used to set Proxy Auto-Config via a URL, you can either create a 
 
 ![alt text](assets/pac-example.png "PAC Example")
 
-The plugin will also automatically set the proxy bypass domains, including you current local network and search domain:
+The plugin will automatically set the proxy bypass domains, including you current local network and search domain:
 
 ```Shell
 $ networksetup -getproxybypassdomains Wi-Fi
