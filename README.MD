@@ -1,3 +1,10 @@
+# Disclaimer
+
+**This package is not related to or developed by Mullvad. No relationship between the developer of this package and Mullvad exists.**
+
+**All trademarks, logos and brand names are the property of their respective owners. All company, product and service names used in this package are for identification purposes only. Use of these names,trademarks and brands does not imply endorsement.**
+
+
 # xbar Mullvad Wireguard SOCKS5 proxy switcher
 
 This [xbar](https://github.com/matryer/xbar) plugin let's you switch between Mullvad WireGuard proxies.
