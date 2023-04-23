@@ -17,7 +17,7 @@ On the initial start the a `venv` will created and the remaining assets are load
 
 ![alt text](assets/demo.gif "Demo Gif")
 
-It can also be used to set Proxy Auto-Config via a URL, you can either create a file in `<xbar-plugins-folder>/mullvad-wireguard-proxy/.pac_url` with your URL or set the URL manually via system settings.
+It can also be used to set Proxy Auto-Config via a URL, you can either create a file in `~/Library/Application\ Support/xbar/plugins/mullvad-wireguard-proxy/.pac_url` with your URL or set the URL manually via system settings.
 
 ![alt text](assets/pac-example.png "PAC Example")
 
