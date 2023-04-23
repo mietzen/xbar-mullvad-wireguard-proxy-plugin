@@ -185,9 +185,7 @@ class MullvadSocksProxyMenu(metaclass=Singleton):
             search_domain = '*.' + subprocess.check_output(
                 "scutil --dns | grep -m 1 'search domain\[0\] : ' | cut -d':' -f2 | tr -d '[:space:]'", shell=True, text=True)
 
-            self._proxy_bypass_str = "127.0.0.1/8 169.254.0.0/16 " + \
-                network + ' ' + \
-                'localhost *.local ' + search_domain
+            self._proxy_bypass_str = ['127.0.0.1/8', '169.254.0.0/16', network, 'localhost', '*.local ', search_domain]
         return self._proxy_bypass_str
 
     def _pac_url(self) -> bool:
@@ -391,14 +389,14 @@ class MullvadSocksProxyMenu(metaclass=Singleton):
             subprocess.call(['networksetup', '-setautoproxyurl', self._default_device_name,
                             pac_url], stdout=subprocess.DEVNULL, stderr=subprocess.STDOUT)
             subprocess.call(['networksetup', '-setproxybypassdomains', self._default_device_name,
-                            self._get_proxy_bypass_str()], stdout=subprocess.DEVNULL, stderr=subprocess.STDOUT)
+                            ] + self._get_proxy_bypass_str(), stdout=subprocess.DEVNULL, stderr=subprocess.STDOUT)
 
     def set_and_activate_socks_proxy(self, proxy_url: str) -> None:
         if proxy_url:
             subprocess.call(['networksetup', '-setsocksfirewallproxy', self._default_device_name,
                             proxy_url, '1080'], stdout=subprocess.DEVNULL, stderr=subprocess.STDOUT)
             subprocess.call(['networksetup', '-setproxybypassdomains', self._default_device_name,
-                            self._get_proxy_bypass_str()], stdout=subprocess.DEVNULL, stderr=subprocess.STDOUT)
+                            ] + self._get_proxy_bypass_str(), stdout=subprocess.DEVNULL, stderr=subprocess.STDOUT)
             subprocess.call(['networksetup', '--setsocksfirewallproxystate', self._default_device_name,
                             'on'], stdout=subprocess.DEVNULL, stderr=subprocess.STDOUT)
 
