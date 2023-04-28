@@ -9,7 +9,7 @@
     <array>
         <string>/usr/bin/open</string>
         <string>--background</string>
-        <string>xbar://app.xbarapp.com/refreshPlugin?path=mullvad-wireguard.1h.py</string>
+        <string>xbar://app.xbarapp.com/refreshPlugin?path=mullvad-wireguard.1h.sh</string>
     </array>
     <key>WatchPaths</key>
     <array>
