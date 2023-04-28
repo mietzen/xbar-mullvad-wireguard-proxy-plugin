@@ -6,6 +6,8 @@ if [ ! -d "./mullvad-wireguard-proxy" ]; then
     wget -qO ./mullvad-wireguard-proxy/mullvad-wireguard-proxy.py "$BASE_URL/mullvad-wireguard-proxy.py"
     wget -qO ./mullvad-wireguard-proxy/requierments "$BASE_URL/requierments"
     wget -qO ./mullvad-wireguard-proxy/assets/mullvad_icon.png "$BASE_URL/assets/mullvad_icon.png"
+    wget -qO  "$HOME/Library/LaunchAgents/com.xbarapp.update-mullvad-on-change.plist" "$BASE_URL/com.xbarapp.update-mullvad-on-change.plist"
+    launchctl load -w  "$HOME/Library/LaunchAgents/com.xbarapp.update-mullvad-on-change.plist"
 fi
 
 cd mullvad-wireguard-proxy
