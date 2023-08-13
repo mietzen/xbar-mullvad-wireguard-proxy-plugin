@@ -22,11 +22,11 @@ On the initial start the a `venv` will created and the remaining assets are load
 
 ## Usage
 
-![alt text](assets/demo.gif "Demo Gif")
+![Demo GIF](assets/demo.gif "Demo Gif")
 
 It can also be used to set Proxy Auto-Config via a URL, you can either create a file in `~/Library/Application\ Support/xbar/plugins/mullvad-wireguard-proxy/.pac_url` with your URL or set the URL manually via system settings.
 
-![alt text](assets/pac-example.png "PAC Example")
+![PAC Example](assets/pac-example.png "PAC Example")
 
 The plugin will automatically set the proxy bypass domains, including you current local network and search domain:
 
