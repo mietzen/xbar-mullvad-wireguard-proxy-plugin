@@ -74,7 +74,7 @@ class MullvadSocksProxyMenu(metaclass=Singleton):
         self._status = None
         self._relays = None
         self._default_device_name = subprocess.check_output(
-            "networksetup -listnetworkserviceorder | grep -B 1 $(netstat -rn | grep default | awk '{ print $4 }' | head -n1 | xargs) | head -n1 | cut -d' ' -f2 | tr -d '[:space:]'", shell=True, text=True)
+            "networksetup -listnetworkserviceorder | grep -B 1 $(netstat -rn | grep default | grep -v tun | awk '{ print $4 }' | head -n1 | xargs) | head -n1 | cut -d' ' -f2 | tr -d '[:space:]'", shell=True, text=True)
         self._check_if_online()
         self._load_mullvad_data()
 
