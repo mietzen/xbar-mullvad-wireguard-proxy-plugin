@@ -127,6 +127,8 @@ class MullvadSocksProxyMenu(metaclass=Singleton):
                     else:
                         # We're probably not connected via mullvad
                         self._status['mullvad_exit_ip'] = False
+                except (Exception):
+                    self._mullvad_api_reachable = False
 
     def _get_countries(self) -> list:
         return natural_sort(set([x['country_name'] for x in self._relays]))
