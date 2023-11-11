@@ -289,8 +289,12 @@ class MullvadSocksProxyMenu(metaclass=Singleton):
                             fid.write('Type:		Unknown\n')
                         else:
                             fid.write('Type:		Conventional\n')
-                        messages = [x['status_messages'] for x in self._relays if x['hostname']
-                                    == self._status['mullvad_exit_ip_hostname']][0]
+                        if 'SOCKS' in self._status['mullvad_server_type']:
+                            messages = [x['status_messages'] for x in self._relays if x['socks_name']
+                                        == self._status['mullvad_exit_ip_hostname']]
+                        else: 
+                            messages = [x['status_messages'] for x in self._relays if x['hostname']
+                                        == self._status['mullvad_exit_ip_hostname']][0]
                         if messages:
                             message = '\n'.join([x['message']
                                                 for x in messages])
