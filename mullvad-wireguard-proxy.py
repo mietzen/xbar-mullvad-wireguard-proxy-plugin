@@ -74,7 +74,7 @@ class MullvadSocksProxyMenu(metaclass=Singleton):
         self._status = None
         self._relays = None
         self._default_device_name = subprocess.check_output(
-            "networksetup -listnetworkserviceorder | grep -B 1 $(netstat -rn | grep default | grep -v tun | awk '{ print $4 }' | head -n1 | xargs) | head -n1 | cut -d' ' -f2 | tr -d '[:space:]'", shell=True, text=True)
+            "networksetup -listnetworkserviceorder | grep -B 1 $(netstat -rn | grep default | grep -v tun | awk '{ print $4 }' | head -n1 | xargs) | head -n1 | sed -n 's/^([0-9])//p' | xargs | tr -d '\n'", shell=True, text=True)
         self._check_if_online()
         self._load_mullvad_data()
 
@@ -289,8 +289,12 @@ class MullvadSocksProxyMenu(metaclass=Singleton):
                             fid.write('Type:		Unknown\n')
                         else:
                             fid.write('Type:		Conventional\n')
-                        messages = [x['status_messages'] for x in self._relays if x['hostname']
-                                    == self._status['mullvad_exit_ip_hostname']][0]
+                        if 'SOCKS' in self._status['mullvad_server_type']:
+                            messages = [x['status_messages'] for x in self._relays if x['socks_name']
+                                        == self._status['mullvad_exit_ip_hostname']]
+                        else: 
+                            messages = [x['status_messages'] for x in self._relays if x['hostname']
+                                        == self._status['mullvad_exit_ip_hostname']][0]
                         if messages:
                             message = '\n'.join([x['message']
                                                 for x in messages])
@@ -326,8 +330,10 @@ class MullvadSocksProxyMenu(metaclass=Singleton):
                                             srv_typ = '-Diskless'
                                         else:
                                             srv_typ = ''
-                                        fid.write('------' + server + ' (' + self._get_ownership(server) + srv_typ + ')' +
-                                                  self._call_self_cli('set_and_activate_socks_proxy', self._get_proxy_url(server)) + '\n')
+                                        socks_proxy_url = self._get_proxy_url(server)
+                                        if socks_proxy_url:
+                                            fid.write('------' + server + ' (' + self._get_ownership(server) + srv_typ + ')' +
+                                                    self._call_self_cli('set_and_activate_socks_proxy', socks_proxy_url) + '\n')
                 fid.write('---' + '\n')
                 fid.write(
                     'Open Mullvad VPN' + gen_xbar_shell_cmd("open -a 'Mullvad VPN'") + '\n')
