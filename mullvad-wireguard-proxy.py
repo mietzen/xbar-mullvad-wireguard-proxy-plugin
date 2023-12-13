@@ -330,8 +330,10 @@ class MullvadSocksProxyMenu(metaclass=Singleton):
                                             srv_typ = '-Diskless'
                                         else:
                                             srv_typ = ''
-                                        fid.write('------' + server + ' (' + self._get_ownership(server) + srv_typ + ')' +
-                                                  self._call_self_cli('set_and_activate_socks_proxy', self._get_proxy_url(server)) + '\n')
+                                        socks_proxy_url = self._get_proxy_url(server)
+                                        if socks_proxy_url:
+                                            fid.write('------' + server + ' (' + self._get_ownership(server) + srv_typ + ')' +
+                                                    self._call_self_cli('set_and_activate_socks_proxy', socks_proxy_url) + '\n')
                 fid.write('---' + '\n')
                 fid.write(
                     'Open Mullvad VPN' + gen_xbar_shell_cmd("open -a 'Mullvad VPN'") + '\n')
