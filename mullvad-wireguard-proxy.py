@@ -62,6 +62,7 @@ class MullvadSocksProxyMenu(metaclass=Singleton):
     def __init__(self):
         self.__file = pathlib.Path(__file__)
         self.__base_dir = pathlib.Path(__file__).parent.resolve()
+        self._custom_config = None
         self.__python = pathlib.Path.joinpath(
             self.__base_dir, '.venv', 'bin', 'python')
         self._secure = " "
@@ -77,6 +78,13 @@ class MullvadSocksProxyMenu(metaclass=Singleton):
             "networksetup -listnetworkserviceorder | grep -B 1 $(netstat -rn | grep default | grep -v tun | awk '{ print $4 }' | head -n1 | xargs) | head -n1 | sed -n 's/^([0-9])//p' | xargs | tr -d '\n'", shell=True, text=True)
         self._check_if_online()
         self._load_mullvad_data()
+        self._load_config()
+
+    def _load_config(self) -> None:
+        path = self.__base_dir.joinpath('config.json')
+        if os.path.isfile(path):
+            with open(path, 'r') as config:
+                self._custom_config = json.load(config)
 
     def _call_self_cli(self, *nargs) -> str:
         cmd = ''
@@ -106,12 +114,21 @@ class MullvadSocksProxyMenu(metaclass=Singleton):
 
             if self._mullvad_api_reachable:
                 try:
-                    pac_session = pypac.PACSession(pac_enabled=self._get_proxy_type() in [
-                                                   'PAC', 'WPAD'], pac=pypac.get_pac(url=self._get_auto_proxy_url()))
-                    self._status = json.loads(
-                        (pac_session.get('https://am.i.mullvad.net/json', timeout=10).text))
+                    if self._get_proxy_type() in ['PAC', 'WPAD']:
+                        pac_session = pypac.PACSession(pac_enabled=True, pac=pypac.get_pac(url=self._get_auto_proxy_url()))
+                        self._status = json.loads(
+                            (pac_session.get('https://am.i.mullvad.net/json', timeout=10).text))
+                    elif self._get_proxy_type() == 'SOCKS5':
+                        proxy_name, proxy_port = self._get_current_socks_proxy_server()
+                        proxies = {'https': 'socks5://' + proxy_name + ':' + proxy_port}
+                        self._status = json.loads(
+                            (requests.get('https://am.i.mullvad.net/json', proxies=proxies, timeout=10).text))
+                    else:
+                        self._status = json.loads(
+                            (requests.get('https://am.i.mullvad.net/json', timeout=10).text))
                     self._am_i_mullvad_reachable = True
-                    self._status['mullvad_server_type'].lower()
+                    if self._status['mullvad_exit_ip']:
+                        self._status['mullvad_server_type'].lower()
                 except (requests.ConnectionError, requests.Timeout, AttributeError, json.JSONDecodeError):
                     # am.i.mullvad.net is sometimes unreachable, so we try to get gather some info
                     self._am_i_mullvad_reachable = False
@@ -188,6 +205,10 @@ class MullvadSocksProxyMenu(metaclass=Singleton):
                 "scutil --dns | grep -m 1 'search domain\[0\] : ' | cut -d':' -f2 | tr -d '[:space:]'", shell=True, text=True)
 
             self._proxy_bypass_str = ['127.0.0.1/8', '169.254.0.0/16', network, 'localhost', '*.local ', search_domain]
+            if self._custom_config:
+                if 'bypass_domains' in self._custom_config:
+                    for bypass_host in self._custom_config['bypass_domains']:
+                        self._proxy_bypass_str.append(bypass_host)
         return self._proxy_bypass_str
 
     def _pac_url(self) -> bool:
@@ -206,10 +227,12 @@ class MullvadSocksProxyMenu(metaclass=Singleton):
 
     def _get_current_socks_proxy_server(self) -> str | None:
         proxy_server = None
+        port = None
         result = self._query_networksetup('getsocksfirewallproxy')
         if result.get('Enabled') == 'Yes':
             proxy_server = result.get('Server')
-        return proxy_server
+            port = result.get('Port')
+        return proxy_server, port
 
     def _get_proxy_type(self) -> str | None:
         type = None
@@ -227,7 +250,7 @@ class MullvadSocksProxyMenu(metaclass=Singleton):
         proxy_type = self._get_proxy_type()
         proxy_str = 'None'
         if proxy_type == 'SOCKS5':
-            socks_proxy = self._get_current_socks_proxy_server()
+            socks_proxy, _ = self._get_current_socks_proxy_server()
             if socks_proxy:
                 if socks_proxy == '10.64.0.1':
                     proxy_str = 'Mullvad default'
@@ -260,62 +283,140 @@ class MullvadSocksProxyMenu(metaclass=Singleton):
             else:
                 fid.write(
                     self._not_secure + " | font='FontAwesome5Free-Solid' | size=16 | trim=false | templateImage=" + self.mullvad_icon + '\n')
-            if 'wireguard' in self._status['mullvad_server_type'].lower():
-                if self._am_i_mullvad_reachable and self._status['mullvad_exit_ip'] and self._get_proxy_type() == 'SOCKS5':
-                    proxies = {'https': 'socks5://' +
-                               self._get_current_socks_proxy_server() + ':1080'}
-                    self._status = json.loads(
-                        (requests.get('https://am.i.mullvad.net/json', proxies=proxies, timeout=10).text))
-                fid.write('---' + '\n')
-                fid.write('IP: 			' + self._status['ip'] + '\n')
-                if self._am_i_mullvad_reachable:
-                    if self._status['mullvad_exit_ip']:
-                        fid.write('Country: 		' +
-                                  self._status['country'] + '\n')
-                        # Sometimes city is missing
-                        if self._status['city']:
-                            fid.write('City: 		' + self._status['city'] + '\n')
+            if self._status['mullvad_exit_ip']:
+                if 'wireguard' in self._status['mullvad_server_type'].lower():
+                    if self._am_i_mullvad_reachable and self._status['mullvad_exit_ip'] and self._get_proxy_type() == 'SOCKS5':
+                        proxy_name, proxy_port = self._get_current_socks_proxy_server()
+                        proxies = {'https': 'socks5://' + proxy_name + ':' + proxy_port}
+                        self._status = json.loads(
+                            (requests.get('https://am.i.mullvad.net/json', proxies=proxies, timeout=10).text))
+                    fid.write('---' + '\n')
+                    fid.write('IP: 			' + self._status['ip'] + '\n')
+                    if self._am_i_mullvad_reachable:
+                        if self._status['mullvad_exit_ip']:
+                            fid.write('Country: 		' +
+                                    self._status['country'] + '\n')
+                            # Sometimes the city is missing
+                            if self._status['city']:
+                                fid.write('City: 		' + self._status['city'] + '\n')
+                            fid.write(
+                                'Hostname:	' + self._status['mullvad_exit_ip_hostname'] + '\n')
+                            fid.write(
+                                'Connection: 	' + self._status['mullvad_server_type'] + '\n')
+                            fid.write('Organization:	' +
+                                    self._status['organization'] + '\n')
+                            fid.write(
+                                'Ownership:	' + self._get_ownership(self._status['mullvad_exit_ip_hostname']) + '\n')
+                            if self._get_stboot(self._status['mullvad_exit_ip_hostname']):
+                                fid.write('Type:		Diskless\n')
+                            elif self._get_stboot(self._status['mullvad_exit_ip_hostname']) is None:
+                                fid.write('Type:		Unknown\n')
+                            else:
+                                fid.write('Type:		Conventional\n')
+                            if 'SOCKS' in self._status['mullvad_server_type']:
+                                messages = [x['status_messages'] for x in self._relays if x['socks_name']
+                                            == self._status['mullvad_exit_ip_hostname']]
+                            else: 
+                                messages = [x['status_messages'] for x in self._relays if x['hostname']
+                                            == self._status['mullvad_exit_ip_hostname']][0]
+                            if messages:
+                                message = '\n'.join([x['message']
+                                                    for x in messages])
+                                fid.write('---\nMessages:	!!! \n' +
+                                        auto_line_break(message, 50) + '\n')
+                            else:
+                                fid.write('---\nMessages:	None\n')
+                    else:
+                        fid.write('Connected via mullvad!' + '\n')
+                        fid.write('Details are not available:' + '\n')
+                        fid.write('am.i.mullvad.net unreachable' + '\n')
+                    fid.write('---' + '\n')
+                    fid.write('Proxy:		' + self._get_proxy_str() + '\n')
+                    if self._get_proxy_type():
+                        fid.write(self._deactivate_socks_proxy_str())
+                    if self._status['mullvad_exit_ip'] and self._get_proxy_type() not in ['PAC', 'WPAD']:
+                        if self._pac_url() and not self._get_proxy_type():
+                            fid.write('Use Proxy Auto-Configuration' +
+                                    self._call_self_cli('activate_pac') + '\n')
                         fid.write(
-                            'Hostname:	' + self._status['mullvad_exit_ip_hostname'] + '\n')
-                        fid.write(
-                            'Connection: 	' + self._status['mullvad_server_type'] + '\n')
-                        fid.write('Organization:	' +
-                                  self._status['organization'] + '\n')
-                        fid.write(
-                            'Ownership:	' + self._get_ownership(self._status['mullvad_exit_ip_hostname']) + '\n')
-                        if self._get_stboot(self._status['mullvad_exit_ip_hostname']):
-                            fid.write('Type:		Diskless\n')
-                        elif self._get_stboot(self._status['mullvad_exit_ip_hostname']) is None:
-                            fid.write('Type:		Unknown\n')
-                        else:
-                            fid.write('Type:		Conventional\n')
-                        if 'SOCKS' in self._status['mullvad_server_type']:
-                            messages = [x['status_messages'] for x in self._relays if x['socks_name']
-                                        == self._status['mullvad_exit_ip_hostname']]
-                        else: 
-                            messages = [x['status_messages'] for x in self._relays if x['hostname']
-                                        == self._status['mullvad_exit_ip_hostname']][0]
-                        if messages:
-                            message = '\n'.join([x['message']
-                                                for x in messages])
-                            fid.write('---\nMessages:	!!! \n' +
-                                      auto_line_break(message, 50) + '\n')
-                        else:
-                            fid.write('---\nMessages:	None\n')
+                            'Mullvad default' + self._call_self_cli('set_and_activate_socks_proxy', '10.64.0.1') + '\n')
+                        if self._custom_config:
+                            if 'custom_proxies' in self._custom_config:
+                                for custom_proxy in self._custom_config['custom_proxies']:
+                                    fid.write(
+                                        custom_proxy['name'] + self._call_self_cli('set_and_activate_socks_proxy', custom_proxy['host'], str(custom_proxy['port'])) + '\n')
+                        fid.write('Countries:' + '\n')
+                        for country in self._get_countries():
+                            # Positive lookahead, do we have proxies in this country?
+                            if [x for x in self._get_cities(country) if self._get_hostnames(x)]:
+                                fid.write('--' + country + '\n')
+                                for city in self._get_cities(country):
+                                    # Positive lookahead, do we have proxies in this city?
+                                    if self._get_hostnames(city):
+                                        fid.write('----' + city + '\n')
+                                        for server in self._get_hostnames(city):
+                                            if self._get_stboot(server):
+                                                srv_typ = '-Diskless'
+                                            else:
+                                                srv_typ = ''
+                                            socks_proxy_url = self._get_proxy_url(server)
+                                            if socks_proxy_url:
+                                                fid.write('------' + server + ' (' + self._get_ownership(server) + srv_typ + ')' +
+                                                        self._call_self_cli('set_and_activate_socks_proxy', socks_proxy_url) + '\n')
+                    fid.write('---' + '\n')
+                    fid.write(
+                        'Open Mullvad VPN' + gen_xbar_shell_cmd("open -a 'Mullvad VPN'") + '\n')
                 else:
-                    fid.write('Connected via mullvad!' + '\n')
-                    fid.write('Details are not available:' + '\n')
+                    fid.write('---' + '\n')
+                    fid.write(
+                        'SOCKS Proxy not available!\nYour connected via OpenVPN!' + '\n')
+                    fid.write('---')
+                    if self._default_device_name:
+                        fid.write('Proxy:		' + self._get_proxy_str() + '\n')
+                        if self._get_proxy_type():
+                            fid.write(self._deactivate_socks_proxy_str())
+                        fid.write('---' + '\n')
+                        fid.write(
+                            'Open Mullvad VPN' + gen_xbar_shell_cmd("open -a 'Mullvad VPN'") + '\n')
+                    else:
+                        fid.write('No Interface available' + '\n')
+                    fid.write('---' + '\n')
+            else:
+                if self._am_i_mullvad_reachable:
+                    if self._get_proxy_type() == 'SOCKS5':
+                        proxy_name, proxy_port = self._get_current_socks_proxy_server()
+                        proxies = {'https': 'socks5://' + proxy_name + ':' + proxy_port}
+                        self._status = json.loads(
+                            (requests.get('https://am.i.mullvad.net/json', proxies=proxies, timeout=10).text))
+                    else:
+                        self._status = json.loads(
+                            (requests.get('https://am.i.mullvad.net/json', timeout=10).text))
+                    fid.write('---' + '\n')
+                    fid.write('IP: 			' + self._status['ip'] + '\n')
+                    fid.write('Country: 		' +
+                            self._status['country'] + '\n')
+                    # Sometimes the city is missing
+                    if self._status['city']:
+                        fid.write('City: 		' + self._status['city'] + '\n')
+                    fid.write('Organization:	' +
+                            self._status['organization'] + '\n')
+                else:
                     fid.write('am.i.mullvad.net unreachable' + '\n')
                 fid.write('---' + '\n')
                 fid.write('Proxy:		' + self._get_proxy_str() + '\n')
                 if self._get_proxy_type():
                     fid.write(self._deactivate_socks_proxy_str())
-                if self._status['mullvad_exit_ip'] and self._get_proxy_type() not in ['PAC', 'WPAD']:
+                if self._get_proxy_type() == 'SOCKS5' and self._get_proxy_type() not in ['PAC', 'WPAD']:
                     if self._pac_url() and not self._get_proxy_type():
                         fid.write('Use Proxy Auto-Configuration' +
-                                  self._call_self_cli('activate_pac') + '\n')
+                                self._call_self_cli('activate_pac') + '\n')
                     fid.write(
                         'Mullvad default' + self._call_self_cli('set_and_activate_socks_proxy', '10.64.0.1') + '\n')
+                    if self._custom_config:
+                        if 'custom_proxies' in self._custom_config:
+                            for custom_proxy in self._custom_config['custom_proxies']:
+                                fid.write(
+                                    custom_proxy['name'] + self._call_self_cli('set_and_activate_socks_proxy', custom_proxy['host'], str(custom_proxy['port'])) + '\n')
                     fid.write('Countries:' + '\n')
                     for country in self._get_countries():
                         # Positive lookahead, do we have proxies in this country?
@@ -337,21 +438,6 @@ class MullvadSocksProxyMenu(metaclass=Singleton):
                 fid.write('---' + '\n')
                 fid.write(
                     'Open Mullvad VPN' + gen_xbar_shell_cmd("open -a 'Mullvad VPN'") + '\n')
-            else:
-                fid.write('---' + '\n')
-                fid.write(
-                    'SOCKS Proxy not available!\nYour connected via OpenVPN!' + '\n')
-                fid.write('---')
-                if self._default_device_name:
-                    fid.write('Proxy:		' + self._get_proxy_str() + '\n')
-                    if self._get_proxy_type():
-                        fid.write(self._deactivate_socks_proxy_str())
-                    fid.write('---' + '\n')
-                    fid.write(
-                        'Open Mullvad VPN' + gen_xbar_shell_cmd("open -a 'Mullvad VPN'") + '\n')
-                else:
-                    fid.write('No Interface available' + '\n')
-                fid.write('---' + '\n')
         else:
             fid.write(self._no_connection +
                       " | font='FontAwesome5Free-Solid' | size=16 | trim=false | templateImage=" + self.mullvad_icon + '\n')
@@ -399,10 +485,10 @@ class MullvadSocksProxyMenu(metaclass=Singleton):
             subprocess.call(['networksetup', '-setproxybypassdomains', self._default_device_name,
                             ] + self._get_proxy_bypass_str(), stdout=subprocess.DEVNULL, stderr=subprocess.STDOUT)
 
-    def set_and_activate_socks_proxy(self, proxy_url: str) -> None:
+    def set_and_activate_socks_proxy(self, proxy_url: str, port: str = '1080') -> None:
         if proxy_url:
             subprocess.call(['networksetup', '-setsocksfirewallproxy', self._default_device_name,
-                            proxy_url, '1080'], stdout=subprocess.DEVNULL, stderr=subprocess.STDOUT)
+                            proxy_url, port], stdout=subprocess.DEVNULL, stderr=subprocess.STDOUT)
             subprocess.call(['networksetup', '-setproxybypassdomains', self._default_device_name,
                             ] + self._get_proxy_bypass_str(), stdout=subprocess.DEVNULL, stderr=subprocess.STDOUT)
             subprocess.call(['networksetup', '--setsocksfirewallproxystate', self._default_device_name,
@@ -442,7 +528,9 @@ def main():
         if sys.argv[1] == 'activate_pac':
             mullvad_socks_proxy_menu.activate_pac()
         if sys.argv[1] == 'set_and_activate_socks_proxy' and len(sys.argv) > 2:
-            mullvad_socks_proxy_menu.set_and_activate_socks_proxy(sys.argv[2])
-
+            if len(sys.argv) == 3:
+                mullvad_socks_proxy_menu.set_and_activate_socks_proxy(sys.argv[2])
+            elif len(sys.argv) == 4:
+                mullvad_socks_proxy_menu.set_and_activate_socks_proxy(sys.argv[2], sys.argv[3])
 
 main()

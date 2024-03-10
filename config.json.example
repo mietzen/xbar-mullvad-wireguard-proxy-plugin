@@ -1,0 +1,11 @@
+{
+    "bypass_domains": [
+        "my.domain.com",
+        "my_2nd.domain.com"],
+    "custom_proxies":[
+        {
+            "name": "VPN Bypass",
+            "host": "vpn-bypass",
+            "port": 1337
+        }]
+}

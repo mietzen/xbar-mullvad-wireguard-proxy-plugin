@@ -39,3 +39,19 @@ localhost
 *.local
 *.box
 ```
+
+You can also add additional bypass strings by `~/Library/Application\ Support/xbar/plugins/mullvad-wireguard-proxy/config.json` and also add custom proxies (e.g. local) SOCKS5 proxies:
+
+```
+{
+    "bypass_domains": [
+        "my.domain.com",
+        "my_2nd.domain.com"],
+    "custom_proxies":[
+        {
+            "name": "VPN Bypass",
+            "host": "192.168.178.42",
+            "port": 1337
+        }]
+}
+```
