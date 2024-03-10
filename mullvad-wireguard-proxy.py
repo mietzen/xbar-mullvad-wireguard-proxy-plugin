@@ -159,10 +159,18 @@ class MullvadSocksProxyMenu(metaclass=Singleton):
     def _get_ip_v4_address(self, hostname: str) -> str:
         return [x['ipv4_addr_in'] for x in self._relays if x['hostname'] == hostname][0]
 
+    def _get_hostname_from_socks_name(self, socks_name: str) -> str:
+        hostname = [x['hostname'] for x in self._relays if socks_name in x['socks_name']]
+        if hostname:
+            hostname = hostname[0]
+        else:
+            hostname = socks_name
+        return hostname
+
     def _get_ownership(self, hostname: str) -> str:
         ownership = 'Unknown'
         ownership_status = [x['owned']
-                            for x in self._relays if x['hostname'] == hostname]
+                            for x in self._relays if hostname == x['hostname']]
         if ownership_status:
             if ownership_status[0]:
                 ownership = 'Owned'
@@ -173,7 +181,7 @@ class MullvadSocksProxyMenu(metaclass=Singleton):
     def _get_stboot(self, hostname: str) -> bool:
         stboot = None
         stboot_status = [x['stboot']
-                         for x in self._relays if x['hostname'] == hostname]
+                         for x in self._relays if hostname == x['hostname']]
         if stboot_status:
             stboot = stboot_status[0]
 
@@ -306,10 +314,16 @@ class MullvadSocksProxyMenu(metaclass=Singleton):
                             fid.write('Organization:	' +
                                     self._status['organization'] + '\n')
                             fid.write(
-                                'Ownership:	' + self._get_ownership(self._status['mullvad_exit_ip_hostname']) + '\n')
-                            if self._get_stboot(self._status['mullvad_exit_ip_hostname']):
+                                'Ownership:	' + self._get_ownership(
+                                    self._get_hostname_from_socks_name(
+                                        self._status['mullvad_exit_ip_hostname'])) + '\n')
+                            if self._get_stboot(
+                                self._get_hostname_from_socks_name(
+                                    self._status['mullvad_exit_ip_hostname'])):
                                 fid.write('Type:		Diskless\n')
-                            elif self._get_stboot(self._status['mullvad_exit_ip_hostname']) is None:
+                            elif self._get_stboot(
+                                self._get_hostname_from_socks_name(
+                                    self._status['mullvad_exit_ip_hostname'])) is None:
                                 fid.write('Type:		Unknown\n')
                             else:
                                 fid.write('Type:		Conventional\n')
@@ -340,11 +354,6 @@ class MullvadSocksProxyMenu(metaclass=Singleton):
                                     self._call_self_cli('activate_pac') + '\n')
                         fid.write(
                             'Mullvad default' + self._call_self_cli('set_and_activate_socks_proxy', '10.64.0.1') + '\n')
-                        if self._custom_config:
-                            if 'custom_proxies' in self._custom_config:
-                                for custom_proxy in self._custom_config['custom_proxies']:
-                                    fid.write(
-                                        custom_proxy['name'] + self._call_self_cli('set_and_activate_socks_proxy', custom_proxy['host'], str(custom_proxy['port'])) + '\n')
                         fid.write('Countries:' + '\n')
                         for country in self._get_countries():
                             # Positive lookahead, do we have proxies in this country?
@@ -363,6 +372,12 @@ class MullvadSocksProxyMenu(metaclass=Singleton):
                                             if socks_proxy_url:
                                                 fid.write('------' + server + ' (' + self._get_ownership(server) + srv_typ + ')' +
                                                         self._call_self_cli('set_and_activate_socks_proxy', socks_proxy_url) + '\n')
+                    if self._custom_config:
+                        fid.write('Custom Proxies' + '\n')
+                        if 'custom_proxies' in self._custom_config:
+                            for custom_proxy in self._custom_config['custom_proxies']:
+                                fid.write('--' +
+                                    custom_proxy['name'] + self._call_self_cli('set_and_activate_socks_proxy', custom_proxy['host'], str(custom_proxy['port'])) + '\n')
                     fid.write('---' + '\n')
                     fid.write(
                         'Open Mullvad VPN' + gen_xbar_shell_cmd("open -a 'Mullvad VPN'") + '\n')
@@ -412,11 +427,6 @@ class MullvadSocksProxyMenu(metaclass=Singleton):
                                 self._call_self_cli('activate_pac') + '\n')
                     fid.write(
                         'Mullvad default' + self._call_self_cli('set_and_activate_socks_proxy', '10.64.0.1') + '\n')
-                    if self._custom_config:
-                        if 'custom_proxies' in self._custom_config:
-                            for custom_proxy in self._custom_config['custom_proxies']:
-                                fid.write(
-                                    custom_proxy['name'] + self._call_self_cli('set_and_activate_socks_proxy', custom_proxy['host'], str(custom_proxy['port'])) + '\n')
                     fid.write('Countries:' + '\n')
                     for country in self._get_countries():
                         # Positive lookahead, do we have proxies in this country?
@@ -435,6 +445,12 @@ class MullvadSocksProxyMenu(metaclass=Singleton):
                                         if socks_proxy_url:
                                             fid.write('------' + server + ' (' + self._get_ownership(server) + srv_typ + ')' +
                                                     self._call_self_cli('set_and_activate_socks_proxy', socks_proxy_url) + '\n')
+                if self._custom_config:
+                    fid.write('Custom Proxies' + '\n')
+                    if 'custom_proxies' in self._custom_config:
+                        for custom_proxy in self._custom_config['custom_proxies']:
+                            fid.write('--' +
+                                custom_proxy['name'] + self._call_self_cli('set_and_activate_socks_proxy', custom_proxy['host'], str(custom_proxy['port'])) + '\n')
                 fid.write('---' + '\n')
                 fid.write(
                     'Open Mullvad VPN' + gen_xbar_shell_cmd("open -a 'Mullvad VPN'") + '\n')
