@@ -160,7 +160,7 @@ class MullvadSocksProxyMenu(metaclass=Singleton):
         return [x['ipv4_addr_in'] for x in self._relays if x['hostname'] == hostname][0]
 
     def _get_hostname_from_socks_name(self, socks_name: str) -> str:
-        hostname = [x['hostname'] for x in self._relays if socks_name in x['socks_name']]
+        hostname = [x['hostname'] for x in self._relays if x.get('socks_name') and socks_name in x['socks_name']]
         if hostname:
             hostname = hostname[0]
         else:
